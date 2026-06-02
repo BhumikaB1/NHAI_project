@@ -3,3 +3,8 @@ android/build/
 android/app/build/
 ios/build/
 .gradle/
+ml/models/embeddings.json
+ml/models/mobilefacenet.tflite
+
+__pycache__/
+*.pyc
