@@ -89,6 +89,12 @@ function App() {
     loadData();
   }, []);
 
+  useEffect(() => {
+  MLService.checkHealth()
+    .then(console.log)
+    .catch(console.error);
+}, []);
+
   // Automatic sync queue flush on network restoration
   useEffect(() => {
     if (isOnline) {

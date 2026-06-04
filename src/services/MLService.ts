@@ -17,60 +17,40 @@ export interface FaceMatchResult {
   userId?: string;
   error?: string;
 }
+const SERVER_URL = 'http://10.0.2.2:5000';
+
+export interface AuthResponse {
+  faceDetected: boolean;
+  liveness: 'PENDING' | 'PASS' | 'FAIL';
+  similarity: number;
+  authenticated: boolean;
+  matchedUserId: string | null;
+  instruction: string;
+}
 
 export class MLService {
-  /**
-   * Simulates a liveness detection check.
-   * Calls the onProgress callback as it processes.
-   * forcePass lets us control the outcome.
-   */
-  static simulateLivenessCheck(
-    prompt: LivenessPrompt,
-    onProgress: (progress: number) => void,
-    forcePass: boolean = true
-  ): Promise<boolean> {
-    return new Promise((resolve) => {
-      let progress = 0;
-      const intervalTime = 120; // ms (slightly faster for a snappy demo)
-      const totalSteps = 10;
-      
-      const interval = setInterval(() => {
-        progress += 1 / totalSteps;
-        onProgress(Math.min(progress, 1));
-        
-        if (progress >= 1) {
-          clearInterval(interval);
-          resolve(forcePass);
-        }
-      }, intervalTime);
+  static async startNewSession() {
+    await fetch(`${SERVER_URL}/new_session`, {
+      method: 'POST',
     });
   }
 
-  /**
-   * Simulates matching a captured face against registered profiles.
-   * forceSuccess lets us control the outcome.
-   */
-  static simulateFaceMatch(imagePath: string, forceSuccess: boolean = true): Promise<FaceMatchResult> {
-    return new Promise((resolve) => {
-      // Log the captured file path to console to simulate real intake
-      console.log(`[MLService] Analyzing frame: ${imagePath}`);
-      
-      setTimeout(() => {
-        if (forceSuccess) {
-          const confidence = parseFloat((93.5 + Math.random() * 5.4).toFixed(2)); // 93.5% - 98.9%
-          resolve({
-            success: true,
-            confidence,
-            userId: `USR-${Math.floor(1000 + Math.random() * 9000)}`,
-          });
-        } else {
-          const confidence = parseFloat((32.1 + Math.random() * 18.3).toFixed(2)); // 32.1% - 50.4%
-          resolve({
-            success: false,
-            confidence,
-          });
-        }
-      }, 1200);
+  static async authenticate(base64Image: string): Promise<AuthResponse> {
+    const response = await fetch(`${SERVER_URL}/authenticate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        image: base64Image,
+      }),
     });
+
+    return await response.json();
+  }
+
+  static async checkHealth() {
+    const response = await fetch(`${SERVER_URL}/health`);
+    return await response.json();
   }
 }
