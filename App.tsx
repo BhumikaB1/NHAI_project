@@ -21,16 +21,41 @@ import {
   CameraRef,
 } from 'react-native-vision-camera';
 import NetInfo from '@react-native-community/netinfo';
-import { MLService, LIVENESS_PROMPTS, LivenessPrompt } from './src/services/MLService';
+import { MLService, LIVENESS_PROMPTS, LivenessPrompt, EmbeddingQuality } from './src/services/MLService';
 import { StorageService, AttendanceLog, UserProfile } from './src/services/StorageService';
 import { SyncService } from './src/services/SyncService';
 import RNFS from 'react-native-fs';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const DUPLICATE_FACE_THRESHOLD = 0.70;
 
 type ResultState = 'idle' | 'face_detected' | 'liveness_check' | 'liveness_result' | 'processing' | 'success' | 'failed' | 'error' | 'registration';
 type SyncStatus = 'idle' | 'syncing' | 'synced' | 'failed';
 type DemoErrorType = 'NONE' | 'NO_FACE' | 'MULTIPLE_FACES' | 'POOR_LIGHTING';
+type RegistrationPose = 'frontal' | 'left' | 'right';
+
+const REGISTRATION_POSES: { id: RegistrationPose; label: string; instruction: string }[] = [
+  { id: 'frontal', label: 'Frontal', instruction: 'Look straight at the camera' },
+  { id: 'left', label: 'Slight left', instruction: 'Turn your face slightly left' },
+  { id: 'right', label: 'Slight right', instruction: 'Turn your face slightly right' },
+];
+
+const l2Normalize = (embedding: number[]) => {
+  const norm = Math.sqrt(embedding.reduce((sum, value) => sum + value * value, 0));
+  return norm > 0 ? embedding.map(value => value / norm) : embedding;
+};
+
+const averageEmbeddings = (embeddings: number[][]) => {
+  const dim = embeddings[0]?.length || 0;
+  const averaged = new Array(dim).fill(0).map((_, index) => {
+    const sum = embeddings.reduce((acc, embedding) => acc + embedding[index], 0);
+    return sum / embeddings.length;
+  });
+  return l2Normalize(averaged);
+};
+
+const formatQuality = (quality: EmbeddingQuality) =>
+  `Brightness ${quality.brightness.toFixed(0)}, Sharpness ${quality.sharpness.toFixed(0)}, Coverage ${(quality.faceCoverage * 100).toFixed(1)}%`;
 
 function App() {
   const { hasPermission, requestPermission } = useCameraPermission();
@@ -51,6 +76,9 @@ function App() {
   // Registration States
   const [registrationName, setRegistrationName] = useState<string>('');
   const [registrationStep, setRegistrationStep] = useState<'name' | 'capture' | 'processing'>('name');
+  const [registrationPoseIndex, setRegistrationPoseIndex] = useState<number>(0);
+  const [registrationEmbeddings, setRegistrationEmbeddings] = useState<number[][]>([]);
+  const [registrationQualities, setRegistrationQualities] = useState<EmbeddingQuality[]>([]);
 
   // Error Screen States
   const [errorTitle, setErrorTitle] = useState<string>('');
@@ -101,6 +129,11 @@ function App() {
     try {
       const result = await MLService.checkHealth();
       console.log('[App] ML Health check:', result);
+      const users = await StorageService.getRegisteredUsers();
+      await Promise.all(
+        users.map(user => MLService.registerUser(user.userId, user.name, user.embedding))
+      );
+      console.log('[App] Synced local profiles to native matcher:', users.length);
     } catch (error) {
       console.error('[App] ML initialization failed:', error);
     }
@@ -151,51 +184,97 @@ function App() {
       return;
     }
     
+    setRegistrationPoseIndex(0);
+    setRegistrationEmbeddings([]);
+    setRegistrationQualities([]);
     setRegistrationStep('capture');
-    setStatusMessage('Ready to capture your face...');
+    setStatusMessage(REGISTRATION_POSES[0].instruction);
   };
 
-  // REAL FACE REGISTRATION - Capture your face
+  // REAL FACE REGISTRATION - Capture frontal, left, and right samples.
   const captureRegistrationFace = async () => {
     try {
+      const pose = REGISTRATION_POSES[registrationPoseIndex];
       setRegistrationStep('processing');
-      setStatusMessage('Capturing your face...');
+      setStatusMessage(`Capturing ${pose.label.toLowerCase()} face...`);
 
-      // Capture photo
-      console.log('[Registration] STEP 1: Capturing face...');
+      console.log('[Registration] STEP 1: Capturing face for pose:', pose.id);
       const photoFile = await photoOutput.capturePhotoToFile({}, {});
       console.log('[Registration] STEP 2: Face captured');
 
-      setStatusMessage('Extracting your face embedding...');
+      setStatusMessage('Extracting face embedding...');
 
-      // Convert to base64
       console.log('[Registration] STEP 3: Converting to base64...');
       const base64Image = await RNFS.readFile(photoFile.filePath, 'base64');
       console.log('[Registration] STEP 4: Base64 ready');
 
-      // Extract REAL embedding from YOUR face
-      console.log('[Registration] STEP 5: Extracting REAL embedding from your face...');
-      const yourRealEmbedding = await MLService.getEmbedding(base64Image);
-      console.log('[Registration] STEP 6: Your real embedding extracted! Dimension:', yourRealEmbedding.length);
+      console.log('[Registration] STEP 5: Extracting quality-gated embedding...');
+      const report = await MLService.getEmbeddingReport(base64Image);
+      console.log('[Registration] STEP 6: Embedding report:', report.quality);
 
-      // Generate unique userId
+      if (!report.quality.passed) {
+        Alert.alert('Capture Rejected', report.quality.rejectReason || 'Face quality check failed');
+        setRegistrationStep('capture');
+        setStatusMessage(pose.instruction);
+        return;
+      }
+
+      const nextEmbeddings = [...registrationEmbeddings, report.embedding];
+      const nextQualities = [...registrationQualities, report.quality];
+      setRegistrationEmbeddings(nextEmbeddings);
+      setRegistrationQualities(nextQualities);
+
+      if (nextEmbeddings.length < REGISTRATION_POSES.length) {
+        const nextIndex = nextEmbeddings.length;
+        setRegistrationPoseIndex(nextIndex);
+        setRegistrationStep('capture');
+        setStatusMessage(REGISTRATION_POSES[nextIndex].instruction);
+        return;
+      }
+
+      const averagedEmbedding = averageEmbeddings(nextEmbeddings);
+      const duplicateCheck = await MLService.matchEmbedding(averagedEmbedding);
+      const duplicateScore = (duplicateCheck.scores || [])
+        .slice()
+        .sort((a, b) => b.similarity - a.similarity)[0];
+
+      if (duplicateScore && duplicateScore.similarity >= DUPLICATE_FACE_THRESHOLD) {
+        const duplicatePercent = Math.round(duplicateScore.similarity * 100);
+        Alert.alert(
+          'Face Already Registered',
+          `This face is already close to ${duplicateScore.name} (${duplicateScore.userId}) at ${duplicatePercent}% similarity.\n\nRegistration stopped to prevent duplicate identities.`
+        );
+        setRegistrationPoseIndex(0);
+        setRegistrationEmbeddings([]);
+        setRegistrationQualities([]);
+        setRegistrationStep('name');
+        setStatusMessage('Registration stopped: duplicate face');
+        return;
+      }
+
       const userId = `USR-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
-      // Save YOUR real embedding
-      console.log('[Registration] STEP 7: Saving your profile with real embedding...');
-      await StorageService.registerUser(userId, registrationName, yourRealEmbedding);
+      console.log('[Registration] STEP 7: Saving averaged embedding...');
+      await StorageService.registerUser(userId, registrationName, averagedEmbedding);
+      await MLService.registerUser(userId, registrationName, averagedEmbedding);
       console.log('[Registration] STEP 8: Profile saved successfully!');
 
-      // Show success
+      const qualitySummary = nextQualities
+        .map((quality, index) => `${REGISTRATION_POSES[index].label}: ${formatQuality(quality)}`)
+        .join('\n');
+
       setStatusMessage('Registration Complete!');
       Alert.alert(
-        '✅ Registration Successful!',
-        `Name: ${registrationName}\nUser ID: ${userId}\nEmbedding: Extracted & Stored\n\nYour face is now registered!`,
+        'Registration Successful!',
+        `Name: ${registrationName}\nUser ID: ${userId}\nSamples: ${nextEmbeddings.length}\n\n${qualitySummary}`,
         [
           {
             text: 'Done',
             onPress: () => {
               setRegistrationName('');
+              setRegistrationPoseIndex(0);
+              setRegistrationEmbeddings([]);
+              setRegistrationQualities([]);
               setRegistrationStep('name');
               setResultState('idle');
               loadData();
@@ -203,15 +282,13 @@ function App() {
           },
         ]
       );
-
     } catch (err) {
       console.error('[Registration] Error:', err);
       Alert.alert('Registration Failed', 'Error: ' + (err as any).message);
       setRegistrationStep('capture');
-      setStatusMessage('Ready to capture your face...');
+      setStatusMessage(REGISTRATION_POSES[registrationPoseIndex]?.instruction || 'Ready to capture your face...');
     }
   };
-
   const startAuthFlow = async () => {
     if (resultState !== 'idle') return;
     if (registeredUsers.length === 0) {
@@ -271,15 +348,30 @@ function App() {
 
             setStatusMessage('Matching your face...');
 
-            // REAL ML PROCESSING - Get embedding from YOUR face NOW
-            console.log('[AUTH] STEP 6: Extracting embedding from your face RIGHT NOW');
-            const yourCurrentEmbedding = await MLService.getEmbedding(base64Image);
-            console.log('[AUTH] STEP 7: Current embedding extracted, dimension:', yourCurrentEmbedding.length);
+            // REAL ML PROCESSING - Get quality-gated embedding from YOUR face NOW
+            console.log('[AUTH] STEP 6: Extracting embedding report from your face RIGHT NOW');
+            const embeddingReport = await MLService.getEmbeddingReport(base64Image);
+            console.log('[AUTH] STEP 7: Current embedding extracted, dimension:', embeddingReport.embedding.length);
+            console.log('[AUTH] STEP 7B: Capture quality:', embeddingReport.quality);
+
+            if (!embeddingReport.quality.passed) {
+              throw new Error(embeddingReport.quality.rejectReason || 'Face quality check failed');
+            }
 
             // REAL FACE MATCHING - Match against YOUR stored embedding
             console.log('[AUTH] STEP 8: Matching against stored user embeddings');
-            const matchResult = await MLService.matchEmbedding(yourCurrentEmbedding);
+            const matchResult = await MLService.matchEmbedding(embeddingReport.embedding);
             console.log('[AUTH] STEP 9: Match result:', matchResult);
+            console.table(
+              (matchResult.scores || [])
+                .slice()
+                .sort((a, b) => b.similarity - a.similarity)
+                .map(score => ({
+                  userId: score.userId,
+                  name: score.name,
+                  similarity: `${(score.similarity * 100).toFixed(2)}%`,
+                }))
+            );
 
             // Calculate confidence score
             const confidenceValue = Math.round((matchResult.similarity || 0) * 100);
@@ -291,7 +383,8 @@ function App() {
               
               // Find matching user profile
               const matchedProfile = registeredUsers.find(u => u.userId === matchedId);
-              const displayName = matchedProfile ? matchedProfile.name : 'Unknown User';
+              const nativeScore = matchResult.scores?.find(score => score.userId === matchedId);
+              const displayName = matchedProfile ? matchedProfile.name : nativeScore?.name || matchedId;
 
               setMatchedUserId(matchedId);
               setMatchedUserName(displayName);
@@ -519,6 +612,9 @@ function App() {
                 onPress={() => {
                   setResultState('idle');
                   setRegistrationName('');
+                  setRegistrationPoseIndex(0);
+                  setRegistrationEmbeddings([]);
+                  setRegistrationQualities([]);
                   setRegistrationStep('name');
                 }}
               >
@@ -536,14 +632,15 @@ function App() {
                 styles.faceGuideFrame,
                 { borderColor: getGuideBorderColor() }
               ]} />
-              <Text style={styles.guideText}>Position your face in the frame</Text>
+              <Text style={styles.guideText}>
+                {REGISTRATION_POSES[registrationPoseIndex].instruction} ({registrationPoseIndex + 1}/{REGISTRATION_POSES.length})
+              </Text>
             </View>
             
             {/* CAPTURE BUTTON */}
             <TouchableOpacity 
               style={styles.captureButton} 
               onPress={captureRegistrationFace}
-              pointerEvents="auto"
             >
               <View style={styles.captureInnerCircle} />
             </TouchableOpacity>

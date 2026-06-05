@@ -10,6 +10,39 @@ export interface LivenessPrompt {
   duration: number;
 }
 
+export interface EmbeddingQuality {
+  passed: boolean;
+  rejectReason?: string;
+  brightness: number;
+  sharpness: number;
+  faceConfidence: number;
+  faceCoverage: number;
+  yaw: number;
+  roll: number;
+}
+
+export interface EmbeddingReport {
+  embedding: number[];
+  quality: EmbeddingQuality;
+}
+
+export interface SimilarityScore {
+  userId: string;
+  name: string;
+  similarity: number;
+}
+
+export interface MatchResult {
+  similarity: number;
+  secondBestSimilarity: number;
+  margin: number;
+  threshold: number;
+  minMargin: number;
+  matched: boolean;
+  matchedUserId?: string;
+  scores: SimilarityScore[];
+}
+
 // Liveness prompts
 export const LIVENESS_PROMPTS: LivenessPrompt[] = [
   { id: 'blink', instruction: 'Blink your eyes slowly', action: 'blink', duration: 3000 },
@@ -40,7 +73,11 @@ class MLServiceClass {
     return await FaceAuthModule.getEmbedding(base64Image);
   }
 
-  async matchEmbedding(embedding: number[]): Promise<any> {
+  async getEmbeddingReport(base64Image: string): Promise<EmbeddingReport> {
+    return await FaceAuthModule.getEmbeddingReport(base64Image);
+  }
+
+  async matchEmbedding(embedding: number[]): Promise<MatchResult> {
     return await FaceAuthModule.matchEmbedding(embedding);
   }
 

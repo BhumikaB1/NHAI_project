@@ -14,7 +14,7 @@ export interface UserProfile {
   userId: string;
   name: string;
   registeredAt: string;
-  embedding: number[]; // Real 128-d face embedding
+  embedding: number[]; // L2-normalized face embedding
 }
 
 const KEYS = {
@@ -24,6 +24,11 @@ const KEYS = {
 };
 
 export class StorageService {
+  private static l2Normalize(embedding: number[]): number[] {
+    const norm = Math.sqrt(embedding.reduce((sum, value) => sum + value * value, 0));
+    return norm > 0 ? embedding.map(value => value / norm) : embedding;
+  }
+
   /**
    * Saves a new attendance log locally.
    */
@@ -103,8 +108,11 @@ export class StorageService {
       
       const existingIdx = profiles.findIndex((p) => p.userId.toLowerCase() === userId.toLowerCase());
       
-      // Use provided embedding or generate dummy for demo
-      const realEmbedding = embedding || new Array(128).fill(0).map(() => Math.random());
+      if (!embedding || embedding.length === 0) {
+        throw new Error('A real face embedding is required for registration');
+      }
+
+      const realEmbedding = this.l2Normalize(embedding);
       
       const newProfile: UserProfile = {
         userId,
