@@ -1,56 +1,78 @@
-export type LivenessPromptType = 'BLINK' | 'TURN_LEFT' | 'TURN_RIGHT';
+import { NativeModules } from 'react-native';
 
+const { FaceAuthModule } = NativeModules;
+
+// Types
 export interface LivenessPrompt {
-  type: LivenessPromptType;
+  id: string;
   instruction: string;
+  action: 'blink' | 'turn_head_left' | 'turn_head_right' | 'nod';
+  duration: number;
 }
 
+// Liveness prompts
 export const LIVENESS_PROMPTS: LivenessPrompt[] = [
-  { type: 'BLINK', instruction: 'Blink your eyes' },
-  { type: 'TURN_LEFT', instruction: 'Turn your head left' },
-  { type: 'TURN_RIGHT', instruction: 'Turn your head right' },
+  { id: 'blink', instruction: 'Blink your eyes slowly', action: 'blink', duration: 3000 },
+  { id: 'turn_left', instruction: 'Turn your head to the left', action: 'turn_head_left', duration: 3000 },
+  { id: 'turn_right', instruction: 'Turn your head to the right', action: 'turn_head_right', duration: 3000 },
+  { id: 'nod', instruction: 'Nod your head up and down', action: 'nod', duration: 3000 },
 ];
 
-export interface FaceMatchResult {
-  success: boolean;
-  confidence: number;
-  userId?: string;
-  error?: string;
-}
-const SERVER_URL = 'http://10.0.2.2:5000';
+class MLServiceClass {
+  private initialized = false;
 
-export interface AuthResponse {
-  faceDetected: boolean;
-  liveness: 'PENDING' | 'PASS' | 'FAIL';
-  similarity: number;
-  authenticated: boolean;
-  matchedUserId: string | null;
-  instruction: string;
-}
+  async checkHealth(): Promise<string> {
+    try {
+      if (!this.initialized) {
+        const result = await FaceAuthModule.initialize();
+        this.initialized = true;
+        console.log('[MLService] Health check:', result);
+        return result || 'ML initialized';
+      }
+      return 'ML already initialized';
+    } catch (error) {
+      console.error('[MLService] Health check failed:', error);
+      throw error;
+    }
+  }
 
-export class MLService {
-  static async startNewSession() {
-    await fetch(`${SERVER_URL}/new_session`, {
-      method: 'POST',
+  async getEmbedding(base64Image: string): Promise<number[]> {
+    return await FaceAuthModule.getEmbedding(base64Image);
+  }
+
+  async matchEmbedding(embedding: number[]): Promise<any> {
+    return await FaceAuthModule.matchEmbedding(embedding);
+  }
+
+  async registerUser(userId: string, name: string, embedding: number[]): Promise<string> {
+    return await FaceAuthModule.registerEmbedding(userId, name, embedding);
+  }
+
+  async simulateLivenessCheck(prompt: LivenessPrompt, onProgress: (p: number) => void, shouldPass: boolean = true): Promise<boolean> {
+    return new Promise((resolve) => {
+      let progress = 0;
+      const interval = setInterval(() => {
+        progress += Math.random() * 0.25;
+        if (progress >= 1) {
+          clearInterval(interval);
+          resolve(shouldPass);
+        }
+        onProgress(progress);
+      }, 300);
     });
   }
 
-  static async authenticate(base64Image: string): Promise<AuthResponse> {
-    const response = await fetch(`${SERVER_URL}/authenticate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        image: base64Image,
-      }),
+  async simulateFaceMatch(imagePath: string, shouldMatch: boolean = true): Promise<any> {
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        resolve({
+          success: shouldMatch,
+          confidence: shouldMatch ? Math.floor(Math.random() * 15 + 85) : Math.floor(Math.random() * 40 + 20),
+          userId: shouldMatch ? `USR-${Math.floor(1000 + Math.random() * 9000)}` : undefined,
+        });
+      }, 1500);
     });
-
-    return await response.json();
-  }
-
-  static async checkHealth() {
-    const response = await fetch(`${SERVER_URL}/health`);
-    return await response.json();
   }
 }
+
+export const MLService = new MLServiceClass();

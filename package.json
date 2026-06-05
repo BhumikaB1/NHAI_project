@@ -15,6 +15,7 @@
     "@react-native/new-app-screen": "0.85.3",
     "react": "19.2.3",
     "react-native": "0.85.3",
+    "react-native-fs": "^2.20.0",
     "react-native-nitro-image": "^0.15.0",
     "react-native-nitro-modules": "^0.35.9",
     "react-native-reanimated": "^4.4.0",

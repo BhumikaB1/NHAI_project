@@ -11,6 +11,7 @@ import {
   FlatList,
   Switch,
   Alert,
+  TextInput,
 } from 'react-native';
 import {
   Camera,
@@ -23,10 +24,11 @@ import NetInfo from '@react-native-community/netinfo';
 import { MLService, LIVENESS_PROMPTS, LivenessPrompt } from './src/services/MLService';
 import { StorageService, AttendanceLog, UserProfile } from './src/services/StorageService';
 import { SyncService } from './src/services/SyncService';
+import RNFS from 'react-native-fs';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-type ResultState = 'idle' | 'face_detected' | 'liveness_check' | 'liveness_result' | 'processing' | 'success' | 'failed' | 'error';
+type ResultState = 'idle' | 'face_detected' | 'liveness_check' | 'liveness_result' | 'processing' | 'success' | 'failed' | 'error' | 'registration';
 type SyncStatus = 'idle' | 'syncing' | 'synced' | 'failed';
 type DemoErrorType = 'NONE' | 'NO_FACE' | 'MULTIPLE_FACES' | 'POOR_LIGHTING';
 
@@ -45,6 +47,10 @@ function App() {
   const [confidenceScore, setConfidenceScore] = useState<number>(0);
   const [matchedUserId, setMatchedUserId] = useState<string>('');
   const [matchedUserName, setMatchedUserName] = useState<string>('');
+
+  // Registration States
+  const [registrationName, setRegistrationName] = useState<string>('');
+  const [registrationStep, setRegistrationStep] = useState<'name' | 'capture' | 'processing'>('name');
 
   // Error Screen States
   const [errorTitle, setErrorTitle] = useState<string>('');
@@ -87,13 +93,18 @@ function App() {
   // Initial data loading
   useEffect(() => {
     loadData();
+    initializeML();
   }, []);
 
-  useEffect(() => {
-  MLService.checkHealth()
-    .then(console.log)
-    .catch(console.error);
-}, []);
+  // Initialize ML module on app start
+  const initializeML = async () => {
+    try {
+      const result = await MLService.checkHealth();
+      console.log('[App] ML Health check:', result);
+    } catch (error) {
+      console.error('[App] ML initialization failed:', error);
+    }
+  };
 
   // Automatic sync queue flush on network restoration
   useEffect(() => {
@@ -133,15 +144,87 @@ function App() {
     }
   };
 
+  // REAL FACE REGISTRATION - Start registration
+  const startRealFaceRegistration = () => {
+    if (!registrationName.trim()) {
+      Alert.alert('Enter Name', 'Please enter your name to register');
+      return;
+    }
+    
+    setRegistrationStep('capture');
+    setStatusMessage('Ready to capture your face...');
+  };
+
+  // REAL FACE REGISTRATION - Capture your face
+  const captureRegistrationFace = async () => {
+    try {
+      setRegistrationStep('processing');
+      setStatusMessage('Capturing your face...');
+
+      // Capture photo
+      console.log('[Registration] STEP 1: Capturing face...');
+      const photoFile = await photoOutput.capturePhotoToFile({}, {});
+      console.log('[Registration] STEP 2: Face captured');
+
+      setStatusMessage('Extracting your face embedding...');
+
+      // Convert to base64
+      console.log('[Registration] STEP 3: Converting to base64...');
+      const base64Image = await RNFS.readFile(photoFile.filePath, 'base64');
+      console.log('[Registration] STEP 4: Base64 ready');
+
+      // Extract REAL embedding from YOUR face
+      console.log('[Registration] STEP 5: Extracting REAL embedding from your face...');
+      const yourRealEmbedding = await MLService.getEmbedding(base64Image);
+      console.log('[Registration] STEP 6: Your real embedding extracted! Dimension:', yourRealEmbedding.length);
+
+      // Generate unique userId
+      const userId = `USR-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+
+      // Save YOUR real embedding
+      console.log('[Registration] STEP 7: Saving your profile with real embedding...');
+      await StorageService.registerUser(userId, registrationName, yourRealEmbedding);
+      console.log('[Registration] STEP 8: Profile saved successfully!');
+
+      // Show success
+      setStatusMessage('Registration Complete!');
+      Alert.alert(
+        '✅ Registration Successful!',
+        `Name: ${registrationName}\nUser ID: ${userId}\nEmbedding: Extracted & Stored\n\nYour face is now registered!`,
+        [
+          {
+            text: 'Done',
+            onPress: () => {
+              setRegistrationName('');
+              setRegistrationStep('name');
+              setResultState('idle');
+              loadData();
+            },
+          },
+        ]
+      );
+
+    } catch (err) {
+      console.error('[Registration] Error:', err);
+      Alert.alert('Registration Failed', 'Error: ' + (err as any).message);
+      setRegistrationStep('capture');
+      setStatusMessage('Ready to capture your face...');
+    }
+  };
+
   const startAuthFlow = async () => {
     if (resultState !== 'idle') return;
+    if (registeredUsers.length === 0) {
+      Alert.alert('No Users Registered', 'Please register your face first using ⚙️ Demo panel!');
+      return;
+    }
 
-    // Step 1: FACE DETECTED State (Simulated initialization)
+    // Step 1: FACE DETECTED State
     setResultState('face_detected');
     setStatusMessage('Detecting Face...');
 
     setTimeout(async () => {
-      // Step 2: Check for Forced Error simulations (Phase 9)
+      // Step 2: Check for Forced Error simulations
       if (demoErrorType !== 'NONE') {
         handleDemoError(demoErrorType);
         return;
@@ -169,66 +252,86 @@ function App() {
         
         // Auto-transition to PROCESSING state after 1 second
         setTimeout(async () => {
-          console.log('[CAMERA FLOW] STEP 1: Starting capture process');
+          console.log('[AUTH] STEP 1: Starting authentication process');
           setResultState('processing');
-          setStatusMessage('Capturing face...');
+          setStatusMessage('Capturing your face...');
           
           try {
             // Capture frame to temporary file
-            console.log('[CAMERA FLOW] STEP 2: Vision Camera capturePhotoToFile initiated');
+            console.log('[AUTH] STEP 2: Capturing photo');
             const photoFile = await photoOutput.capturePhotoToFile({}, {});
-            console.log('[CAMERA FLOW] STEP 3: Vision Camera photo captured successfully, path:', photoFile.filePath);
+            console.log('[AUTH] STEP 3: Photo captured');
             
-            setStatusMessage('Matching face...');
-            
-            // Step 4: ML matching (Phase 4 integration)
-            console.log('[CAMERA FLOW] STEP 4: Mock ML face matching initiated');
-            const matchResult = await MLService.simulateFaceMatch(photoFile.filePath, demoFaceMatch);
-            console.log('[CAMERA FLOW] STEP 5: Face matching completed, success:', matchResult.success);
-            
-            // Console output matching backend expectations
-            console.log('[ML Response]', {
-              faceDetected: true,
-              liveness: 'PASS',
-              similarity: matchResult.success ? (matchResult.confidence / 100) : 0.45,
-              authenticated: matchResult.success
-            });
+            setStatusMessage('Extracting face embedding...');
 
-            setConfidenceScore(matchResult.confidence);
-            
-            if (matchResult.success) {
-              // Match ID with a registered user if possible
-              let matchedId = matchResult.userId || 'UNKNOWN';
-              let name = 'Demo User';
+            // Convert photo to base64
+            console.log('[AUTH] STEP 4: Converting to base64');
+            const base64Image = await RNFS.readFile(photoFile.filePath, 'base64');
+            console.log('[AUTH] STEP 5: Base64 ready');
+
+            setStatusMessage('Matching your face...');
+
+            // REAL ML PROCESSING - Get embedding from YOUR face NOW
+            console.log('[AUTH] STEP 6: Extracting embedding from your face RIGHT NOW');
+            const yourCurrentEmbedding = await MLService.getEmbedding(base64Image);
+            console.log('[AUTH] STEP 7: Current embedding extracted, dimension:', yourCurrentEmbedding.length);
+
+            // REAL FACE MATCHING - Match against YOUR stored embedding
+            console.log('[AUTH] STEP 8: Matching against stored user embeddings');
+            const matchResult = await MLService.matchEmbedding(yourCurrentEmbedding);
+            console.log('[AUTH] STEP 9: Match result:', matchResult);
+
+            // Calculate confidence score
+            const confidenceValue = Math.round((matchResult.similarity || 0) * 100);
+            setConfidenceScore(confidenceValue);
+
+            if (matchResult.matched && matchResult.matchedUserId) {
+              // AUTHENTICATION SUCCESS
+              const matchedId = matchResult.matchedUserId;
               
-              if (registeredUsers.length > 0) {
-                const randomProfile = registeredUsers[Math.floor(Math.random() * registeredUsers.length)];
-                matchedId = randomProfile.userId;
-                name = randomProfile.name;
-              }
-              
+              // Find matching user profile
+              const matchedProfile = registeredUsers.find(u => u.userId === matchedId);
+              const displayName = matchedProfile ? matchedProfile.name : 'Unknown User';
+
               setMatchedUserId(matchedId);
-              setMatchedUserName(name);
+              setMatchedUserName(displayName);
               setResultState('success');
-              setStatusMessage('Authenticated');
-              
-              // Persist log locally
-              await StorageService.saveAttendanceLog(matchedId, 'SUCCESS', false);
+              setStatusMessage('Authenticated!');
+
+              // Save attendance log
+              await StorageService.saveAttendanceLog(
+                matchedId,
+                'SUCCESS',
+                false,
+                confidenceValue,
+                'PASS'
+              );
+
+              console.log('[AUTH] ✅ User authenticated:', matchedId);
             } else {
+              // AUTHENTICATION FAILED
               setResultState('failed');
               setStatusMessage('Authentication Failed');
-              
-              await StorageService.saveAttendanceLog('UNKNOWN', 'FAILED', false);
+
+              await StorageService.saveAttendanceLog(
+                'UNKNOWN',
+                'FAILED',
+                false,
+                confidenceValue,
+                'PASS'
+              );
+
+              console.log('[AUTH] ❌ Face did not match any registered user');
             }
-            
+
             await loadData();
             if (isOnline) triggerSync();
 
           } catch (err) {
-            console.error('[App] Photo capture/match exception:', err);
-            setErrorTitle('Camera Failure');
-            setErrorMessage('An error occurred while initializing or reading from the camera.');
-            setErrorSuggestion('Suggested Action: Ensure no other applications are using the camera and retry.');
+            console.error('[AUTH] Exception:', err);
+            setErrorTitle('Camera/ML Failure');
+            setErrorMessage('Error during authentication: ' + (err as any).message);
+            setErrorSuggestion('Try again with better lighting');
             setResultState('error');
             
             await StorageService.saveAttendanceLog('UNKNOWN', 'FAILED', false);
@@ -236,11 +339,10 @@ function App() {
           }
         }, 1000);
       } else {
-        // Liveness Failure (Phase 9)
         setStatusMessage('Liveness: FAIL');
         setErrorTitle('Liveness Failure');
         setErrorMessage('Eye blink or head motion was not verified in the feed.');
-        setErrorSuggestion('Suggested Action: Please blink or turn your head slowly in front of the front camera.');
+        setErrorSuggestion('Please blink or turn your head slowly in front of the camera.');
         setResultState('error');
         
         await StorageService.saveAttendanceLog('LIVENESS_FAIL', 'FAILED', false);
@@ -249,7 +351,7 @@ function App() {
     }, 800);
   };
 
-  // Helper to handle forced error overrides (Phase 9)
+  // Handle forced error overrides
   const handleDemoError = async (errorType: DemoErrorType) => {
     setResultState('processing');
     setStatusMessage('Processing...');
@@ -259,17 +361,17 @@ function App() {
         case 'NO_FACE':
           setErrorTitle('No Face Detected');
           setErrorMessage('We couldn\'t find a face in the camera frame.');
-          setErrorSuggestion('Suggested Action: Position your face inside the dashed guide frame and ensure good lighting.');
+          setErrorSuggestion('Position your face inside the dashed guide frame.');
           break;
         case 'MULTIPLE_FACES':
           setErrorTitle('Multiple Faces');
           setErrorMessage('More than one face was found in the frame.');
-          setErrorSuggestion('Suggested Action: Ensure only one person is in front of the camera for authentication.');
+          setErrorSuggestion('Ensure only one person is in front of the camera.');
           break;
         case 'POOR_LIGHTING':
           setErrorTitle('Poor Lighting');
-          setErrorMessage('The environment is too dark or has heavy shadows.');
-          setErrorSuggestion('Suggested Action: Move to a well-lit area or turn on lights to proceed.');
+          setErrorMessage('The environment is too dark.');
+          setErrorSuggestion('Move to a well-lit area.');
           break;
         default:
           break;
@@ -282,20 +384,6 @@ function App() {
       await loadData();
       if (isOnline) triggerSync();
     }, 1200);
-  };
-
-  const handleRegisterUser = async () => {
-    const names = ['Harsh Vardhan', 'Amit Kumar', 'Neha Sharma', 'Rohan Gupta', 'Pooja Patil'];
-    const randomName = names[Math.floor(Math.random() * names.length)];
-    const userId = `USR-${Math.floor(1000 + Math.random() * 9000)}`;
-
-    try {
-      await StorageService.registerUser(userId, randomName);
-      await loadData();
-      Alert.alert('Profile Registered', `Name: ${randomName}\nUser ID: ${userId}\nEmbedding: Extracted`);
-    } catch (err) {
-      console.error('Failed to register user:', err);
-    }
   };
 
   const handleReset = () => {
@@ -317,21 +405,23 @@ function App() {
   const getGuideBorderColor = () => {
     switch (resultState) {
       case 'face_detected':
-        return '#06B6D4'; // Glowing Cyan
+        return '#06B6D4';
       case 'liveness_check':
-        return '#3B82F6'; // Electric Blue
+        return '#3B82F6';
       case 'liveness_result':
-        return livenessPassed ? '#22C55E' : '#EF4444'; // Green pass, Red fail
+        return livenessPassed ? '#22C55E' : '#EF4444';
       case 'processing':
-        return '#EAB308'; // Pulsing Yellow
+        return '#EAB308';
       case 'success':
-        return '#22C55E'; // Green Success
+        return '#22C55E';
       case 'failed':
-        return '#EF4444'; // Red Failure
+        return '#EF4444';
       case 'error':
-        return '#EF4444'; // Red Error
+        return '#EF4444';
+      case 'registration':
+        return '#F59E0B';
       default:
-        return '#3B82F6'; // Seeking Blue
+        return '#3B82F6';
     }
   };
 
@@ -366,7 +456,7 @@ function App() {
         />
       ) : (
         <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>No front camera device found on this system.</Text>
+          <Text style={styles.errorText}>No front camera found</Text>
         </View>
       )}
 
@@ -380,7 +470,7 @@ function App() {
             isOnline ? styles.networkOnlineBadge : styles.networkOfflineBadge
           ]}>
             <Text style={styles.networkBadgeText}>
-              {isOnline ? '🌐 Online' : '⚠️ Offline Mode'}
+              {isOnline ? '🌐 Online' : '⚠️ Offline'}
             </Text>
           </View>
 
@@ -393,14 +483,83 @@ function App() {
               {syncStatus === 'syncing' && <ActivityIndicator size="small" color="#FFF" style={{ marginRight: 6 }} />}
               <Text style={styles.syncNotifText}>
                 {syncStatus === 'syncing' ? 'Syncing...' :
-                 syncStatus === 'synced' ? 'Synced successfully' : 'Sync failed'}
+                 syncStatus === 'synced' ? '✅ Synced' : '❌ Sync failed'}
               </Text>
             </View>
           )}
         </View>
 
+        {/* REGISTRATION FLOW */}
+        {resultState === 'registration' && registrationStep === 'name' && (
+          <View style={styles.registrationOverlay}>
+            <View style={styles.registrationCard}>
+              <Text style={styles.registrationTitle}>📸 Register Your Face</Text>
+              <Text style={styles.registrationSubtitle}>
+                Enter your name and we'll capture your face for authentication
+              </Text>
+
+              <TextInput
+                style={styles.nameInput}
+                placeholder="Enter your full name"
+                placeholderTextColor="#64748B"
+                value={registrationName}
+                onChangeText={setRegistrationName}
+                maxLength={50}
+              />
+
+              <TouchableOpacity
+                style={styles.registerButton}
+                onPress={startRealFaceRegistration}
+              >
+                <Text style={styles.registerButtonText}>Next: Capture Face</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => {
+                  setResultState('idle');
+                  setRegistrationName('');
+                  setRegistrationStep('name');
+                }}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* REGISTRATION CAPTURE SCREEN */}
+        {resultState === 'registration' && registrationStep === 'capture' && (
+          <View style={styles.overlayContainer}>
+            <View style={styles.guideContainer} pointerEvents="none">
+              <View style={[
+                styles.faceGuideFrame,
+                { borderColor: getGuideBorderColor() }
+              ]} />
+              <Text style={styles.guideText}>Position your face in the frame</Text>
+            </View>
+            
+            {/* CAPTURE BUTTON */}
+            <TouchableOpacity 
+              style={styles.captureButton} 
+              onPress={captureRegistrationFace}
+              pointerEvents="auto"
+            >
+              <View style={styles.captureInnerCircle} />
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* REGISTRATION PROCESSING */}
+        {resultState === 'registration' && registrationStep === 'processing' && (
+          <View style={styles.processingOverlay}>
+            <ActivityIndicator size="large" color="#3B82F6" />
+            <Text style={styles.processingText}>{statusMessage}</Text>
+          </View>
+        )}
+
         {/* Dynamic Bounding Box Overlay */}
-        {!showLogsPanel && !showDemoPanel && (resultState === 'idle' || resultState === 'face_detected' || resultState === 'liveness_check') && (
+        {resultState !== 'registration' && !showLogsPanel && !showDemoPanel && (resultState === 'idle' || resultState === 'face_detected' || resultState === 'liveness_check') && (
           <View style={styles.guideContainer} pointerEvents="none">
             <View style={[
               styles.faceGuideFrame,
@@ -447,9 +606,8 @@ function App() {
               </Text>
               <Text style={styles.resultSubtext}>
                 {livenessPassed 
-                  ? 'Verifying identity. Please hold still...' 
-                  : 'Liveness test failed. Motion discrepancy detected.'
-                }
+                  ? 'Verifying identity...' 
+                  : 'Motion not detected.'}
               </Text>
             </View>
           </View>
@@ -463,12 +621,12 @@ function App() {
           </View>
         )}
 
-        {/* Success Feedback Screen (Phase 4 / 11) */}
+        {/* Success Feedback Screen */}
         {resultState === 'success' && (
           <View style={[styles.feedbackOverlay, styles.successOverlay]}>
             <View style={styles.feedbackCard}>
               <Text style={styles.feedbackIcon}>✅</Text>
-              <Text style={styles.feedbackTitle}>Authenticated</Text>
+              <Text style={styles.feedbackTitle}>Authenticated!</Text>
               
               <View style={styles.metricsBox}>
                 <Text style={styles.metricsText}>
@@ -478,13 +636,14 @@ function App() {
                   Liveness: <Text style={styles.highlightText}>PASS</Text>
                 </Text>
                 <Text style={styles.metricsText}>
-                  Status: <Text style={styles.highlightText}>Authenticated</Text>
+                  Status: <Text style={styles.highlightText}>✅ Matched</Text>
                 </Text>
               </View>
 
               <Text style={styles.feedbackDescription}>
                 Welcome back,{'\n'}
-                <Text style={styles.userNameText}>{matchedUserName}</Text> ({matchedUserId})
+                <Text style={styles.userNameText}>{matchedUserName}</Text>{'\n'}
+                <Text style={{ fontSize: 12, color: '#94A3B8' }}>({matchedUserId})</Text>
               </Text>
               
               <TouchableOpacity style={[styles.actionButton, styles.successButton]} onPress={handleReset}>
@@ -494,12 +653,12 @@ function App() {
           </View>
         )}
 
-        {/* Failure Feedback Screen (Phase 11) */}
+        {/* Failure Feedback Screen */}
         {resultState === 'failed' && (
           <View style={[styles.feedbackOverlay, styles.failureOverlay]}>
             <View style={styles.feedbackCard}>
               <Text style={styles.feedbackIcon}>❌</Text>
-              <Text style={styles.feedbackTitle}>Authentication Failed</Text>
+              <Text style={styles.feedbackTitle}>Not Matched</Text>
               
               <View style={styles.metricsBox}>
                 <Text style={styles.metricsText}>
@@ -509,12 +668,12 @@ function App() {
                   Liveness: <Text style={styles.highlightText}>PASS</Text>
                 </Text>
                 <Text style={styles.metricsText}>
-                  Status: <Text style={styles.failHighlightText}>Not Matched</Text>
+                  Status: <Text style={styles.failHighlightText}>❌ No Match</Text>
                 </Text>
               </View>
 
               <Text style={styles.feedbackDescription}>
-                The captured face did not match any registered profiles.
+                Your face didn't match any registered profile.
               </Text>
               
               <TouchableOpacity style={[styles.actionButton, styles.failureButton]} onPress={handleReset}>
@@ -524,7 +683,7 @@ function App() {
           </View>
         )}
 
-        {/* Phase 9 Error Handler Screen */}
+        {/* Error Handler Screen */}
         {resultState === 'error' && (
           <View style={[styles.feedbackOverlay, styles.failureOverlay]}>
             <View style={styles.feedbackCard}>
@@ -548,7 +707,7 @@ function App() {
         {showLogsPanel && resultState === 'idle' && (
           <View style={styles.logsDrawer}>
             <View style={styles.logsHeader}>
-              <Text style={styles.logsTitle}>Local Attendance Logs ({attendanceLogs.length})</Text>
+              <Text style={styles.logsTitle}>📂 Logs ({attendanceLogs.length})</Text>
               <View style={styles.logsHeaderActions}>
                 <TouchableOpacity style={styles.clearLogsButton} onPress={clearLogs}>
                   <Text style={styles.clearLogsButtonText}>Clear DB</Text>
@@ -581,14 +740,14 @@ function App() {
                     item.synced ? styles.syncedBadge : styles.unsyncedBadge
                   ]}>
                     <Text style={styles.syncBadgeText}>
-                      {item.synced ? 'Synced' : 'Local'}
+                      {item.synced ? '✓ Synced' : '⌛ Local'}
                     </Text>
                   </View>
                 </View>
               )}
               ListEmptyComponent={
                 <View style={styles.emptyLogs}>
-                  <Text style={styles.emptyLogsText}>No attendance records saved locally.</Text>
+                  <Text style={styles.emptyLogsText}>No logs yet. Authenticate to create logs!</Text>
                 </View>
               }
             />
@@ -599,7 +758,7 @@ function App() {
         {showDemoPanel && resultState === 'idle' && (
           <View style={styles.logsDrawer}>
             <View style={styles.logsHeader}>
-              <Text style={styles.logsTitle}>⚙️ Hackathon Demo Panel</Text>
+              <Text style={styles.logsTitle}>⚙️ Demo Settings</Text>
               <TouchableOpacity style={styles.closeLogsButton} onPress={() => setShowDemoPanel(false)}>
                 <Text style={styles.closeLogsText}>✕</Text>
               </TouchableOpacity>
@@ -611,28 +770,42 @@ function App() {
               contentContainerStyle={styles.demoContentContainer}
               renderItem={() => (
                 <View>
-                  <Text style={styles.demoSectionTitle}>REGISTRATION & STORAGE (PHASE 5)</Text>
-                  <View style={styles.demoItemRow}>
-                    <View style={{ flex: 1, paddingRight: 10 }}>
-                      <Text style={styles.demoItemTitle}>Enroll New Mock User</Text>
-                      <Text style={styles.demoItemSubtitle}>
-                        Stores profile (userId, timestamp, embedding string) locally. Face DB: {registeredUsers.length} profiles.
-                      </Text>
-                    </View>
-                    <TouchableOpacity style={styles.demoActionButton} onPress={handleRegisterUser}>
-                      <Text style={styles.demoActionButtonText}>+ Register User</Text>
-                    </TouchableOpacity>
-                  </View>
+                  <Text style={styles.demoSectionTitle}>👤 REGISTERED USERS ({registeredUsers.length})</Text>
+                  {registeredUsers.length === 0 ? (
+                    <Text style={styles.demoItemSubtitle}>No users registered yet. Tap "Register Yourself" below!</Text>
+                  ) : (
+                    registeredUsers.map(user => (
+                      <View key={user.userId} style={styles.userListItem}>
+                        <Text style={styles.userListName}>{user.name}</Text>
+                        <Text style={styles.userListId}>{user.userId}</Text>
+                      </View>
+                    ))
+                  )}
 
                   <View style={styles.divider} />
 
-                  <Text style={styles.demoSectionTitle}>OUTCOME OVERRIDES (PHASE 10)</Text>
+                  <Text style={styles.demoSectionTitle}>📸 REGISTER YOUR FACE</Text>
+                  <TouchableOpacity 
+                    style={styles.demoActionButton}
+                    onPress={() => {
+                      setRegistrationName('');
+                      setRegistrationStep('name');
+                      setResultState('registration');
+                      setShowDemoPanel(false);
+                    }}
+                  >
+                    <Text style={styles.demoActionButtonText}>+ Register Yourself</Text>
+                  </TouchableOpacity>
+
+                  <View style={styles.divider} />
+
+                  <Text style={styles.demoSectionTitle}>✅ LIVENESS TEST</Text>
                   
                   <View style={styles.demoSwitchRow}>
                     <View>
                       <Text style={styles.demoItemTitle}>Force Liveness Pass</Text>
                       <Text style={styles.demoItemSubtitle}>
-                        {demoLivenessPass ? 'Blink/Turn matches successfully' : 'Motion mismatch/fails'}
+                        {demoLivenessPass ? '✓ Always passes' : '✗ Always fails'}
                       </Text>
                     </View>
                     <Switch
@@ -644,9 +817,9 @@ function App() {
 
                   <View style={styles.demoSwitchRow}>
                     <View>
-                      <Text style={styles.demoItemTitle}>Force Match Success</Text>
+                      <Text style={styles.demoItemTitle}>Force Face Match</Text>
                       <Text style={styles.demoItemSubtitle}>
-                        {demoFaceMatch ? 'Returns Similarity score > 90%' : 'Returns Not Matched'}
+                        {demoFaceMatch ? '✓ Always matches' : '✗ Always fails'}
                       </Text>
                     </View>
                     <Switch
@@ -658,9 +831,8 @@ function App() {
 
                   <View style={styles.divider} />
 
-                  <Text style={styles.demoSectionTitle}>ERROR SIMULATIONS (PHASE 9)</Text>
+                  <Text style={styles.demoSectionTitle}>⚠️ ERROR SIMULATIONS</Text>
                   <View style={styles.errorSelectorContainer}>
-                    <Text style={styles.demoItemSubtitle}>Select an issue to mock during authentication:</Text>
                     <View style={styles.errorButtonGrid}>
                       {(['NONE', 'NO_FACE', 'MULTIPLE_FACES', 'POOR_LIGHTING'] as DemoErrorType[]).map((type) => (
                         <TouchableOpacity
@@ -675,9 +847,7 @@ function App() {
                             styles.errorSelectorText,
                             demoErrorType === type ? styles.errorSelectorTextActive : null
                           ]}>
-                            {type === 'NONE' ? 'Standard Match' : 
-                             type === 'NO_FACE' ? 'No Face' : 
-                             type === 'MULTIPLE_FACES' ? 'Multi-Face' : 'Poor Light'}
+                            {type === 'NONE' ? 'Standard' : type.replace(/_/g, ' ')}
                           </Text>
                         </TouchableOpacity>
                       ))}
@@ -686,15 +856,13 @@ function App() {
 
                   <View style={styles.divider} />
 
-                  <Text style={styles.demoSectionTitle}>OFFLINE QUEUE & SYNC (PHASE 7/8)</Text>
+                  <Text style={styles.demoSectionTitle}>🔄 OFFLINE & SYNC</Text>
 
                   <View style={styles.demoSwitchRow}>
                     <View>
-                      <Text style={styles.demoItemTitle}>Simulate Offline (Airplane Mode)</Text>
+                      <Text style={styles.demoItemTitle}>Simulate Offline</Text>
                       <Text style={styles.demoItemSubtitle}>
-                        {simulateOffline 
-                          ? 'OFFLINE - Attendance saved local-only' 
-                          : 'ONLINE - Auto-sync restored logs'}
+                        {simulateOffline ? '⚠️ OFFLINE MODE' : '🌐 ONLINE'}
                       </Text>
                     </View>
                     <Switch
@@ -710,7 +878,7 @@ function App() {
                     onPress={triggerSync}
                     disabled={!isOnline}
                   >
-                    <Text style={styles.demoActionButtonText}>🔄 Trigger Manual Sync Queue</Text>
+                    <Text style={styles.demoActionButtonText}>🔄 Manual Sync</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -718,19 +886,17 @@ function App() {
           </View>
         )}
 
-        {/* Bottom Control panel (only when idle and panels are closed) */}
+        {/* Bottom Control panel */}
         {resultState === 'idle' && !showLogsPanel && !showDemoPanel && (
           <View style={styles.controlPanel}>
             
             <View style={styles.panelRow}>
-              {/* Database Logs Button */}
               <TouchableOpacity style={[styles.viewLogsButton, { marginRight: 12 }]} onPress={() => setShowLogsPanel(true)}>
-                <Text style={styles.viewLogsText}>📂 DB Logs ({attendanceLogs.length})</Text>
+                <Text style={styles.viewLogsText}>📂 Logs ({attendanceLogs.length})</Text>
               </TouchableOpacity>
 
-              {/* Demo Controller Button */}
               <TouchableOpacity style={styles.viewLogsButton} onPress={() => setShowDemoPanel(true)}>
-                <Text style={styles.viewLogsText}>⚙️ Demo Panel</Text>
+                <Text style={styles.viewLogsText}>⚙️ Demo</Text>
               </TouchableOpacity>
             </View>
 
@@ -765,11 +931,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: '#1E293B',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
   },
   permissionTitle: {
     fontSize: 20,
@@ -777,7 +938,6 @@ const styles = StyleSheet.create({
     color: '#F8FAFC',
     marginBottom: 12,
     textAlign: 'center',
-    fontFamily: 'System',
   },
   permissionDescription: {
     fontSize: 14,
@@ -785,7 +945,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 24,
     lineHeight: 20,
-    fontFamily: 'System',
   },
   permissionButton: {
     paddingVertical: 12,
@@ -797,7 +956,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
-    fontFamily: 'System',
   },
   errorContainer: {
     flex: 1,
@@ -811,7 +969,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
     fontWeight: '500',
-    fontFamily: 'System',
   },
   overlayContainer: {
     position: 'absolute',
@@ -835,11 +992,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 12,
     borderWidth: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3,
-    elevation: 3,
   },
   networkOnlineBadge: {
     backgroundColor: 'rgba(22, 163, 74, 0.85)',
@@ -853,7 +1005,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: 'bold',
-    fontFamily: 'System',
   },
   syncNotification: {
     flexDirection: 'row',
@@ -862,11 +1013,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 12,
     borderWidth: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3,
-    elevation: 3,
   },
   syncingNotif: {
     backgroundColor: 'rgba(59, 130, 246, 0.85)',
@@ -884,7 +1030,97 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: 'bold',
-    fontFamily: 'System',
+  },
+  registrationOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(15, 23, 42, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  registrationCard: {
+    width: '90%',
+    padding: 28,
+    borderRadius: 24,
+    backgroundColor: '#0F172A',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  registrationTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#F8FAFC',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  registrationSubtitle: {
+    fontSize: 14,
+    color: '#94A3B8',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  nameInput: {
+    width: '100%',
+    height: 54,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.3)',
+    paddingHorizontal: 16,
+    fontSize: 16,
+    color: '#F8FAFC',
+    backgroundColor: 'rgba(30, 41, 59, 0.5)',
+    marginBottom: 24,
+  },
+  registerButton: {
+    width: '100%',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    backgroundColor: '#3B82F6',
+    marginBottom: 12,
+  },
+  registerButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+  },
+  cancelButton: {
+    width: '100%',
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#64748B',
+  },
+  cancelButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#94A3B8',
+  },
+  userListItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    marginVertical: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.3)',
+  },
+  userListName: {
+    color: '#F8FAFC',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  userListId: {
+    color: '#94A3B8',
+    fontSize: 11,
+    marginTop: 2,
   },
   guideContainer: {
     flex: 1,
@@ -899,10 +1135,6 @@ const styles = StyleSheet.create({
     borderRadius: 150,
     borderStyle: 'dashed',
     backgroundColor: 'rgba(59, 130, 246, 0.05)',
-    shadowColor: '#3B82F6',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
   },
   guideText: {
     marginTop: 20,
@@ -912,7 +1144,6 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0, 0, 0, 0.75)',
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 3,
-    fontFamily: 'System',
   },
   livenessCheckOverlay: {
     position: 'absolute',
@@ -933,10 +1164,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(59, 130, 246, 0.3)',
-    shadowColor: '#3B82F6',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
   },
   livenessLabel: {
     fontSize: 12,
@@ -944,7 +1171,6 @@ const styles = StyleSheet.create({
     color: '#3B82F6',
     letterSpacing: 2,
     marginBottom: 10,
-    fontFamily: 'System',
   },
   livenessPromptText: {
     fontSize: 22,
@@ -952,7 +1178,6 @@ const styles = StyleSheet.create({
     color: '#F8FAFC',
     textAlign: 'center',
     marginBottom: 20,
-    fontFamily: 'System',
   },
   progressBarContainer: {
     width: '100%',
@@ -969,7 +1194,6 @@ const styles = StyleSheet.create({
   progressPercentage: {
     fontSize: 12,
     color: '#94A3B8',
-    fontFamily: 'System',
   },
   livenessResultOverlay: {
     position: 'absolute',
@@ -993,11 +1217,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: '#0F172A',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 8,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
   },
@@ -1010,14 +1229,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#F8FAFC',
     marginBottom: 8,
-    fontFamily: 'System',
   },
   resultSubtext: {
     fontSize: 14,
     color: '#94A3B8',
     textAlign: 'center',
     lineHeight: 20,
-    fontFamily: 'System',
   },
   processingOverlay: {
     position: 'absolute',
@@ -1034,7 +1251,6 @@ const styles = StyleSheet.create({
     color: '#F8FAFC',
     fontSize: 18,
     fontWeight: '600',
-    fontFamily: 'System',
   },
   feedbackOverlay: {
     position: 'absolute',
@@ -1058,11 +1274,6 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     backgroundColor: '#0F172A',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.5,
-    shadowRadius: 15,
-    elevation: 10,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
   },
@@ -1076,7 +1287,6 @@ const styles = StyleSheet.create({
     color: '#F8FAFC',
     marginBottom: 16,
     textAlign: 'center',
-    fontFamily: 'System',
   },
   metricsBox: {
     width: '100%',
@@ -1092,7 +1302,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     marginVertical: 4,
-    fontFamily: 'System',
   },
   feedbackDescription: {
     fontSize: 15,
@@ -1100,18 +1309,18 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 24,
     lineHeight: 22,
-    fontFamily: 'System',
   },
   userNameText: {
     color: '#FFF',
     fontWeight: 'bold',
+    fontSize: 16,
   },
   highlightText: {
-    color: '#22C55E', // Green
+    color: '#22C55E',
     fontWeight: 'bold',
   },
   failHighlightText: {
-    color: '#EF4444', // Red
+    color: '#EF4444',
     fontWeight: 'bold',
   },
   errorMessageText: {
@@ -1120,7 +1329,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '600',
     marginBottom: 16,
-    fontFamily: 'System',
   },
   suggestionBox: {
     width: '100%',
@@ -1137,7 +1345,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: 18,
     textAlign: 'center',
-    fontFamily: 'System',
   },
   actionButton: {
     width: '100%',
@@ -1155,9 +1362,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     color: '#FFFFFF',
-    fontFamily: 'System',
   },
-  // Logs Drawer Styles
   logsDrawer: {
     position: 'absolute',
     bottom: 0,
@@ -1169,11 +1374,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.15)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 15,
     paddingTop: 16,
   },
   logsHeader: {
@@ -1189,7 +1389,6 @@ const styles = StyleSheet.create({
     color: '#F8FAFC',
     fontSize: 16,
     fontWeight: 'bold',
-    fontFamily: 'System',
   },
   logsHeaderActions: {
     flexDirection: 'row',
@@ -1207,7 +1406,6 @@ const styles = StyleSheet.create({
     color: '#EF4444',
     fontSize: 11,
     fontWeight: '600',
-    fontFamily: 'System',
   },
   closeLogsButton: {
     padding: 4,
@@ -1236,14 +1434,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     marginRight: 12,
   },
-  successStatusText: {
-    fontSize: 18,
-    marginRight: 12,
-  },
-  failedStatusText: {
-    fontSize: 18,
-    marginRight: 12,
-  },
   logInfo: {
     justifyContent: 'center',
   },
@@ -1251,13 +1441,11 @@ const styles = StyleSheet.create({
     color: '#F8FAFC',
     fontSize: 14,
     fontWeight: '600',
-    fontFamily: 'System',
   },
   logTime: {
     color: '#64748B',
     fontSize: 11,
     marginTop: 2,
-    fontFamily: 'System',
   },
   syncBadge: {
     paddingVertical: 4,
@@ -1286,9 +1474,7 @@ const styles = StyleSheet.create({
   emptyLogsText: {
     color: '#64748B',
     fontSize: 14,
-    fontFamily: 'System',
   },
-  // Demo Drawer Styles
   demoContentContainer: {
     padding: 20,
     paddingBottom: 60,
@@ -1299,26 +1485,17 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     letterSpacing: 1.5,
     marginBottom: 12,
-    fontFamily: 'System',
-  },
-  demoItemRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
   },
   demoItemTitle: {
     color: '#F8FAFC',
     fontSize: 14,
     fontWeight: 'bold',
-    fontFamily: 'System',
   },
   demoItemSubtitle: {
     color: '#64748B',
     fontSize: 11,
     marginTop: 2,
     lineHeight: 16,
-    fontFamily: 'System',
   },
   demoActionButton: {
     backgroundColor: '#3B82F6',
@@ -1330,13 +1507,18 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 12,
     fontWeight: 'bold',
-    fontFamily: 'System',
   },
   demoSwitchRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
+  },
+  demoItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
   },
   divider: {
     height: 1,
@@ -1372,7 +1554,6 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     fontSize: 12,
     fontWeight: '600',
-    fontFamily: 'System',
   },
   errorSelectorTextActive: {
     color: '#EF4444',
@@ -1400,7 +1581,6 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     fontSize: 13,
     fontWeight: '600',
-    fontFamily: 'System',
   },
   statusBadge: {
     backgroundColor: 'rgba(15, 23, 42, 0.75)',
@@ -1415,7 +1595,6 @@ const styles = StyleSheet.create({
     color: '#3B82F6',
     fontSize: 15,
     fontWeight: '600',
-    fontFamily: 'System',
   },
   captureButton: {
     width: 80,
@@ -1426,11 +1605,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'transparent',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
   },
   captureInnerCircle: {
     width: 66,
