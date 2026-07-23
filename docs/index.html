@@ -26,7 +26,7 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(6,10,15,0.85
 
 /* HERO */
 .hero{min-height:100vh;display:flex;align-items:center;justify-content:center;text-align:center;padding:80px 24px 60px;position:relative;overflow:hidden;}
-.hero::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 800px 500px at 50% 30%,rgba(0,212,170,0.06) 0%,transparent 70%);}
+.hero::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 800px 500px at 50% 30%,rgba(0,212,170,0.06) 0%,transparent 70%);pointer-events:none;}
 .hero-badge{display:inline-flex;align-items:center;gap:8px;background:rgba(0,212,170,0.08);border:1px solid rgba(0,212,170,0.2);color:var(--teal);font-family:var(--mono);font-size:11px;padding:6px 14px;border-radius:100px;letter-spacing:0.08em;margin-bottom:28px;}
 .hero-badge::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--teal);animation:pulse 2s infinite;}
 @keyframes pulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:0.5;transform:scale(0.8);}}
