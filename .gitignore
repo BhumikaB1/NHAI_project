@@ -8,3 +8,17 @@ ml/models/mobilefacenet.tflite
 
 __pycache__/
 *.pyc
+
+# Android build output — never commit these
+android/app/build/
+android/app/.cxx/
+android/build/
+android/.gradle/
+
+# iOS build output
+ios/build/
+ios/Pods/
+
+# General
+*.apk
+*.aab
