@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>NHAI Face Auth — Offline Biometric Attendance</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --bg:#060a0f;--surface:#0d1420;--card:#111c2d;--border:rgba(255,255,255,0.07);
+  --teal:#00d4aa;--blue:#3b82f6;--amber:#f59e0b;--green:#22c55e;--red:#ef4444;
+  --text:#f1f5f9;--muted:#64748b;--light:#94a3b8;
+  --mono:'Space Mono',monospace;--sans:'Inter',sans-serif;
+}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.6;overflow-x:hidden;}
+a{color:var(--teal);text-decoration:none;}
+a:hover{text-decoration:underline;}
+
+/* NAV */
+nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(6,10,15,0.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:0 32px;height:56px;display:flex;align-items:center;justify-content:space-between;}
+.nav-logo{font-family:var(--mono);font-size:13px;color:var(--teal);font-weight:700;}
+.nav-links{display:flex;gap:24px;font-size:13px;color:var(--light);}
+.nav-links a{color:var(--light);}
+.nav-links a:hover{color:var(--teal);text-decoration:none;}
+
+/* HERO */
+.hero{min-height:100vh;display:flex;align-items:center;justify-content:center;text-align:center;padding:80px 24px 60px;position:relative;overflow:hidden;}
+.hero::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 800px 500px at 50% 30%,rgba(0,212,170,0.06) 0%,transparent 70%);}
+.hero-badge{display:inline-flex;align-items:center;gap:8px;background:rgba(0,212,170,0.08);border:1px solid rgba(0,212,170,0.2);color:var(--teal);font-family:var(--mono);font-size:11px;padding:6px 14px;border-radius:100px;letter-spacing:0.08em;margin-bottom:28px;}
+.hero-badge::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--teal);animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:0.5;transform:scale(0.8);}}
+h1{font-size:clamp(36px,6vw,72px);font-weight:700;line-height:1.1;margin-bottom:20px;letter-spacing:-1px;}
+h1 span{color:var(--teal);}
+.hero-sub{font-size:clamp(15px,2vw,19px);color:var(--light);max-width:640px;margin:0 auto 40px;font-weight:400;}
+.btn-row{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-bottom:64px;}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:13px 28px;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;transition:all 0.2s;text-decoration:none;}
+.btn-primary{background:var(--teal);color:#060a0f;}
+.btn-primary:hover{background:#00b896;transform:translateY(-1px);text-decoration:none;}
+.btn-secondary{background:transparent;color:var(--text);border:1px solid var(--border);}
+.btn-secondary:hover{border-color:var(--teal);color:var(--teal);transform:translateY(-1px);text-decoration:none;}
+
+/* STATS */
+.stats{display:flex;gap:2px;justify-content:center;flex-wrap:wrap;margin-bottom:0;}
+.stat{background:var(--card);border:1px solid var(--border);padding:20px 32px;text-align:center;min-width:140px;}
+.stat:first-child{border-radius:10px 0 0 10px;}
+.stat:last-child{border-radius:0 10px 10px 0;}
+.stat-val{font-family:var(--mono);font-size:28px;font-weight:700;color:var(--teal);display:block;}
+.stat-lab{font-size:11px;color:var(--muted);letter-spacing:0.06em;text-transform:uppercase;margin-top:4px;}
+
+/* SECTIONS */
+section{padding:96px 24px;max-width:1100px;margin:0 auto;}
+.section-tag{font-family:var(--mono);font-size:11px;color:var(--teal);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:12px;}
+.section-title{font-size:clamp(24px,4vw,38px);font-weight:700;margin-bottom:16px;letter-spacing:-0.5px;}
+.section-sub{color:var(--light);font-size:16px;max-width:600px;margin-bottom:48px;}
+hr.divider{border:none;border-top:1px solid var(--border);margin:0;}
+
+/* PIPELINE */
+.pipeline{display:flex;flex-direction:column;gap:0;}
+.pipe-step{display:flex;gap:24px;align-items:flex-start;padding:20px 0;border-bottom:1px solid var(--border);}
+.pipe-step:last-child{border-bottom:none;}
+.pipe-num{font-family:var(--mono);font-size:11px;color:var(--teal);background:rgba(0,212,170,0.08);border:1px solid rgba(0,212,170,0.2);width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-weight:700;}
+.pipe-body{}
+.pipe-title{font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px;}
+.pipe-desc{font-size:13px;color:var(--muted);}
+.pipe-tag{display:inline-block;font-family:var(--mono);font-size:10px;padding:2px 8px;border-radius:4px;margin-top:6px;background:rgba(59,130,246,0.1);color:var(--blue);border:1px solid rgba(59,130,246,0.2);}
+
+/* CARDS */
+.card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;transition:border-color 0.2s;}
+.card:hover{border-color:rgba(0,212,170,0.3);}
+.card-icon{font-size:28px;margin-bottom:14px;}
+.card-title{font-size:16px;font-weight:600;margin-bottom:8px;}
+.card-desc{font-size:13px;color:var(--muted);line-height:1.6;}
+
+/* TECH */
+.tech-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;}
+.tech-col{}
+.tech-col-head{font-size:11px;font-family:var(--mono);color:var(--teal);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border);}
+.tech-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.03);}
+.tech-item:last-child{border-bottom:none;}
+.tech-dot{width:6px;height:6px;border-radius:50%;background:var(--teal);flex-shrink:0;}
+.tech-name{font-size:13px;font-weight:500;}
+.tech-note{font-size:11px;color:var(--muted);margin-left:auto;}
+
+/* METRICS */
+.metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;}
+.metric{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;text-align:center;}
+.metric-val{font-family:var(--mono);font-size:36px;font-weight:700;margin-bottom:6px;}
+.metric-lab{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;}
+.metric-note{font-size:11px;color:var(--muted);margin-top:8px;}
+.c-teal{color:var(--teal);}
+.c-green{color:var(--green);}
+.c-blue{color:var(--blue);}
+.c-amber{color:var(--amber);}
+
+/* COMPARISON */
+.compare{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.compare-col{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;}
+.compare-col.ours{border-color:rgba(0,212,170,0.3);}
+.compare-head{font-size:13px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px;}
+.compare-item{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:13px;color:var(--light);}
+.compare-item:last-child{border-bottom:none;}
+.check{color:var(--green);}
+.cross{color:var(--red);}
+
+/* CODE BLOCK */
+.code{background:#0d1117;border:1px solid var(--border);border-radius:10px;padding:20px 24px;font-family:var(--mono);font-size:12px;color:#e2e8f0;overflow-x:auto;line-height:1.8;}
+.code .c{color:var(--muted);}
+.code .k{color:var(--teal);}
+.code .s{color:var(--amber);}
+.code .n{color:var(--blue);}
+
+/* FOOTER */
+footer{background:var(--surface);border-top:1px solid var(--border);padding:48px 24px;text-align:center;}
+.footer-title{font-family:var(--mono);font-size:16px;color:var(--teal);font-weight:700;margin-bottom:8px;}
+.footer-sub{font-size:13px;color:var(--muted);margin-bottom:24px;}
+.footer-links{display:flex;gap:24px;justify-content:center;font-size:13px;flex-wrap:wrap;}
+
+@media(max-width:640px){
+  .compare{grid-template-columns:1fr;}
+  .stat{min-width:100px;padding:14px 20px;}
+  .stat-val{font-size:22px;}
+  nav{padding:0 16px;}
+  .nav-links{gap:16px;}
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-logo">NHAI · FaceAuth</div>
+  <div class="nav-links">
+    <a href="#pipeline">Pipeline</a>
+    <a href="#features">Features</a>
+    <a href="#tech">Tech Stack</a>
+    <a href="#metrics">Results</a>
+    <a href="https://github.com/Maybe1Harsh/NHAI_project" target="_blank">GitHub ↗</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+  <div>
+    <div class="hero-badge">Hackathon 7.0 · NHAI · Offline-First</div>
+    <h1>Face Auth that works<br/><span>without internet.</span></h1>
+    <p class="hero-sub">A fully offline biometric attendance system for NHAI field personnel. Face recognition, liveness detection, and attendance logging — entirely on-device using TensorFlow Lite.</p>
+    <div class="btn-row">
+      <a href="https://github.com/Maybe1Harsh/NHAI_project/releases" class="btn btn-primary">⬇ Download APK</a>
+      <a href="https://github.com/Maybe1Harsh/NHAI_project" class="btn btn-secondary" target="_blank">View Source →</a>
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="stat-val">&lt;1s</span><div class="stat-lab">Auth Time</div></div>
+      <div class="stat"><span class="stat-val">~11MB</span><div class="stat-lab">Model Size</div></div>
+      <div class="stat"><span class="stat-val">0.925</span><div class="stat-lab">Similarity</div></div>
+      <div class="stat"><span class="stat-val">128-d</span><div class="stat-lab">Embeddings</div></div>
+      <div class="stat"><span class="stat-val">100%</span><div class="stat-lab">Offline</div></div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider"/>
+
+<!-- WHY -->
+<section>
+  <div class="section-tag">The Problem</div>
+  <h2 class="section-title">Attendance systems fail where workers are.</h2>
+  <p class="section-sub">NHAI field personnel work at remote toll plazas, highway construction sites, and field offices — places where internet is unreliable or nonexistent. Conventional biometric systems are useless without a server connection.</p>
+
+  <div class="compare">
+    <div class="compare-col">
+      <div class="compare-head"><span class="cross">✗</span> Conventional Systems</div>
+      <div class="compare-item"><span class="cross">✗</span> Requires active internet connection</div>
+      <div class="compare-item"><span class="cross">✗</span> Server-dependent authentication</div>
+      <div class="compare-item"><span class="cross">✗</span> Fails in remote locations</div>
+      <div class="compare-item"><span class="cross">✗</span> Data exposed during transit</div>
+      <div class="compare-item"><span class="cross">✗</span> High latency on poor networks</div>
+      <div class="compare-item"><span class="cross">✗</span> No attendance logging when offline</div>
+    </div>
+    <div class="compare-col ours">
+      <div class="compare-head"><span class="check">✓</span> Our Solution</div>
+      <div class="compare-item"><span class="check">✓</span> Zero internet dependency</div>
+      <div class="compare-item"><span class="check">✓</span> On-device TFLite inference</div>
+      <div class="compare-item"><span class="check">✓</span> Works in any remote location</div>
+      <div class="compare-item"><span class="check">✓</span> Embeddings never leave the device</div>
+      <div class="compare-item"><span class="check">✓</span> Sub-second authentication</div>
+      <div class="compare-item"><span class="check">✓</span> Offline attendance queue + sync</div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider"/>
+
+<!-- PIPELINE -->
+<section id="pipeline">
+  <div class="section-tag">How It Works</div>
+  <h2 class="section-title">Authentication pipeline</h2>
+  <p class="section-sub">Every step runs on the device. No network call. No server. No compromise.</p>
+
+  <div class="pipeline">
+    <div class="pipe-step">
+      <div class="pipe-num">01</div>
+      <div class="pipe-body">
+        <div class="pipe-title">Camera Capture + EXIF Correction</div>
+        <div class="pipe-desc">React Native Vision Camera captures a real-time frame. EXIF orientation is corrected before any processing — a common failure point on Android that we explicitly handle.</div>
+        <span class="pipe-tag">vision-camera v4</span>
+      </div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-num">02</div>
+      <div class="pipe-body">
+        <div class="pipe-title">Face Detection + Quality Gate</div>
+        <div class="pipe-desc">MediaPipe detects the face and runs quality checks — brightness, sharpness, face size, coverage, yaw/roll angles. Blurry, dark, extreme-angle, or partial faces are rejected before inference.</div>
+        <span class="pipe-tag">MediaPipe · Kotlin</span>
+      </div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-num">03</div>
+      <div class="pipe-body">
+        <div class="pipe-title">Alignment + Normalization</div>
+        <div class="pipe-desc">Face is cropped, aligned, and resized to 112×112. Pixels are normalized to [−1, 1]. CLAHE preprocessing compensates for outdoor lighting conditions.</div>
+        <span class="pipe-tag">OpenCV · Bitmap</span>
+      </div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-num">04</div>
+      <div class="pipe-body">
+        <div class="pipe-title">MobileFaceNet Inference (TFLite)</div>
+        <div class="pipe-desc">The preprocessed 112×112 face is passed to MobileFaceNet running via TFLite inside a Kotlin native module. Output is a 128-dimensional embedding vector.</div>
+        <span class="pipe-tag">TensorFlow Lite · MobileFaceNet</span>
+      </div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-num">05</div>
+      <div class="pipe-body">
+        <div class="pipe-title">L2 Normalization + Cosine Matching</div>
+        <div class="pipe-desc">Embedding is L2-normalized. Cosine similarity (dot product) is computed against all enrolled users. Authentication requires best score ≥ 0.72 AND a margin of ≥ 0.04 over the second-best match.</div>
+        <span class="pipe-tag">Cosine similarity · Margin rule</span>
+      </div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-num">06</div>
+      <div class="pipe-body">
+        <div class="pipe-title">Offline Attendance Logging</div>
+        <div class="pipe-desc">Attendance record (userId, timestamp, score, status) is stored locally. When connectivity is restored, records sync to the server and are purged from local storage after confirmation.</div>
+        <span class="pipe-tag">AsyncStorage · NetInfo · AWS sync</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider"/>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="section-tag">Features</div>
+  <h2 class="section-title">Built for the real world</h2>
+  <p class="section-sub">Every design decision was made for field reliability, not lab conditions.</p>
+
+  <div class="card-grid">
+    <div class="card">
+      <div class="card-icon">🧬</div>
+      <div class="card-title">3-Image Enrollment</div>
+      <div class="card-desc">Registration captures three poses (frontal, left, right) and averages the embeddings. This gives a more robust, pose-invariant identity representation than single-shot enrollment.</div>
+    </div>
+    <div class="card">
+      <div class="card-icon">🛡️</div>
+      <div class="card-title">Liveness Detection</div>
+      <div class="card-desc">EAR (Eye Aspect Ratio) blink detection and head pose estimation prevent spoofing via printed photos, phone screens, or static images.</div>
+    </div>
+    <div class="card">
+      <div class="card-icon">🚫</div>
+      <div class="card-title">Duplicate Prevention</div>
+      <div class="card-desc">Before registering a new user, the system checks all existing embeddings. If similarity ≥ 0.70 with any enrolled user, registration is blocked — preventing the same face appearing under two names.</div>
+    </div>
+    <div class="card">
+      <div class="card-icon">🔍</div>
+      <div class="card-title">Face Quality Rejection</div>
+      <div class="card-desc">Poor captures are rejected before inference: blurry, overexposed, underexposed, partially out of frame, too small, too close, extreme head angles. Garbage in = garbage embedding.</div>
+    </div>
+    <div class="card">
+      <div class="card-icon">📴</div>
+      <div class="card-title">100% Offline</div>
+      <div class="card-desc">TFLite model, embeddings, and attendance logs live entirely on-device. No network call is made during authentication. Works in tunnels, forests, remote highways — anywhere.</div>
+    </div>
+    <div class="card">
+      <div class="card-icon">🔄</div>
+      <div class="card-title">Smart Sync + Purge</div>
+      <div class="card-desc">NetInfo monitors connectivity. When online, queued attendance records are batch-uploaded. Records are purged from local storage only after server acknowledgement — zero data loss.</div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider"/>
+
+<!-- TECH STACK -->
+<section id="tech">
+  <div class="section-tag">Tech Stack</div>
+  <h2 class="section-title">100% open source</h2>
+  <p class="section-sub">No proprietary APIs. No paid services. No licences required.</p>
+
+  <div class="tech-grid">
+    <div class="tech-col">
+      <div class="tech-col-head">Mobile / Frontend</div>
+      <div class="tech-item"><div class="tech-dot"></div><div class="tech-name">React Native</div><div class="tech-note">v0.85</div></div>
+      <div class="tech-item"><div class="tech-dot"></div><div class="tech-name">TypeScript</div><div class="tech-note">type-safe</div></div>
+      <div class="tech-item"><div class="tech-dot"></div><div class="tech-name">Vision Camera</div><div class="tech-note">v4</div></div>
+      <div class="tech-item"><div class="tech-dot"></div><div class="tech-name">AsyncStorage</div><div class="tech-note">offline queue</div></div>
+      <div class="tech-item"><div class="tech-dot"></div><div class="tech-name">NetInfo</div><div class="tech-note">sync trigger</div></div>
+    </div>
+    <div class="tech-col">
+      <div class="tech-col-head">ML / Computer Vision</div>
+      <div class="tech-item"><div class="tech-dot"></div><div class="tech-name">TensorFlow Lite</div><div class="tech-note">on-device</div></div>
+      <div class="tech-item"><div class="tech-dot"></div><div class="tech-name">MobileFaceNet</div><div class="tech-note">128-d embed</div></div>
+      <div class="tech-item"><div class="tech-dot"></div><div class="tech-name">MediaPipe</div><div class="tech-note">face detect</div></div>
+      <div class="tech-item"><div class="tech-dot"></div><div class="tech-name">Cosine Similarity</div><div class="tech-note">L2 norm</div></div>
+      <div class="tech-item"><div class="tech-dot"></div><div class="tech-name">CLAHE</div><div class="tech-note">lighting</div></div>
+    </div>
+    <div class="tech-col">
+      <div class="tech-col-head">Native Android</div>
+      <div class="tech-item"><div class="tech-dot"></div><div class="tech-name">Kotlin</div><div class="tech-note">native module</div></div>
+      <div class="tech-item"><div class="tech-dot"></div><div class="tech-name">RN Bridge</div><div class="tech-note">JSI</div></div>
+      <div class="tech-item"><div class="tech-dot"></div><div class="tech-name">Android SDK</div><div class="tech-note">API 26+</div></div>
+      <div class="tech-item"><div class="tech-dot"></div><div class="tech-name">Bitmap API</div><div class="tech-note">face crop</div></div>
+      <div class="tech-item"><div class="tech-dot"></div><div class="tech-name">EXIF Handler</div><div class="tech-note">orientation</div></div>
+    </div>
+    <div class="tech-col">
+      <div class="tech-col-head">ML Backend (Python)</div>
+      <div class="tech-item"><div class="tech-dot"></div><div class="tech-name">Python 3.11</div><div class="tech-note">pipeline</div></div>
+      <div class="tech-item"><div class="tech-dot"></div><div class="tech-name">Flask</div><div class="tech-note">HTTP bridge</div></div>
+      <div class="tech-item"><div class="tech-dot"></div><div class="tech-name">OpenCV</div><div class="tech-note">preprocessing</div></div>
+      <div class="tech-item"><div class="tech-dot"></div><div class="tech-name">NumPy</div><div class="tech-note">math ops</div></div>
+      <div class="tech-item"><div class="tech-dot"></div><div class="tech-name">pytest</div><div class="tech-note">12/12 pass</div></div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider"/>
+
+<!-- METRICS -->
+<section id="metrics">
+  <div class="section-tag">Results</div>
+  <h2 class="section-title">Measured. Tested. Working.</h2>
+  <p class="section-sub">Tested on real Android hardware — not an emulator.</p>
+
+  <div class="metric-grid">
+    <div class="metric">
+      <div class="metric-val c-teal">0.925</div>
+      <div class="metric-lab">Similarity Score</div>
+      <div class="metric-note">vs threshold 0.72</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val c-green">&lt;1s</div>
+      <div class="metric-lab">Auth Latency</div>
+      <div class="metric-note">end-to-end on-device</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val c-blue">~11MB</div>
+      <div class="metric-lab">Total Model Size</div>
+      <div class="metric-note">vs 20 MB limit</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val c-amber">12/12</div>
+      <div class="metric-lab">Tests Passing</div>
+      <div class="metric-note">pytest suite</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val c-teal">0.72</div>
+      <div class="metric-lab">Auth Threshold</div>
+      <div class="metric-note">+ 0.04 margin rule</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val c-green">3</div>
+      <div class="metric-lab">Enrolled Users</div>
+      <div class="metric-note">live tested</div>
+    </div>
+  </div>
+
+  <div style="margin-top:32px;">
+    <pre class="code"><span class="c"># Live debug output from authentication session</span>
+User emp_001:  <span class="k">78.2%</span>   ← best match
+User emp_002:  <span class="n">61.4%</span>
+User emp_003:  <span class="n">54.9%</span>
+
+Best score:    <span class="k">78.2%</span>
+Second-best:   <span class="n">61.4%</span>
+Margin:        <span class="k">16.8%</span>  ✓ (required: ≥ 4%)
+
+Result: <span class="s">AUTHENTICATED</span> → emp_001
+Attendance logged offline. Sync pending.</pre>
+  </div>
+</section>
+
+<hr class="divider"/>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-title">NHAI · Offline Face Authentication</div>
+  <div class="footer-links">
+    <a href="https://github.com/Maybe1Harsh/NHAI_project" target="_blank">GitHub Repository ↗</a>
+    <a href="https://github.com/Maybe1Harsh/NHAI_project/releases" target="_blank">Download APK ↗</a>
+    <a href="https://github.com/BhumikaB1" target="_blank">Bhumika on GitHub ↗</a>
+    <a href="https://github.com/Maybe1Harsh" target="_blank">Harsh on GitHub ↗</a>
+  </div>
+</footer>
+
+</body>
+</html>
