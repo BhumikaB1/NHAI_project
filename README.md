@@ -83,7 +83,7 @@ NHAI_project/
 ├── ml/ # Python ML pipeline (dev/testing)
 │ ├── detection/ # MediaPipe face detector
 │ ├── recognition/ # MobileFaceNet embeddings
-│ ├── liveness/ # EAR blink + head pose
+│ ├── liveness/ # EYE blink + head pose
 │ ├── utils/ # CLAHE, alignment, normalization
 │ ├── main.py # FaceAuthSystem integration API
 │ └── server.py # Flask HTTP bridge
